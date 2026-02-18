@@ -18,7 +18,7 @@ services:
     restart: unless-stopped
 
   conduwuit:
-    image: girlbossceo/conduwuit:latest
+    image: ghcr.io/matrix-construct/tuwunel:latest
     volumes:
       - conduwuit_data:/var/lib/conduwuit
     environment:
