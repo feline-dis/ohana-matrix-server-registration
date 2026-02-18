@@ -18,7 +18,7 @@ services:
     restart: unless-stopped
 
   conduwuit:
-    image: ghcr.io/girlbossceo/conduwuit:latest
+    image: girlbossceo/conduwuit:latest
     volumes:
       - conduwuit_data:/var/lib/conduwuit
     environment:
