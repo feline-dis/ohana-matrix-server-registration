@@ -15,6 +15,7 @@ services:
       - conduwuit
       - livekit
       - lk-jwt-service
+      - element-web
     restart: unless-stopped
 
   conduwuit:
@@ -46,6 +47,12 @@ services:
       - "50000-50200:50000-50200/udp"
     volumes:
       - ./livekit/livekit.yaml:/etc/livekit.yaml:ro
+    restart: unless-stopped
+
+  element-web:
+    image: vectorim/element-web:latest
+    volumes:
+      - ./element/config.json:/app/config.json:ro
     restart: unless-stopped
 
   lk-jwt-service:

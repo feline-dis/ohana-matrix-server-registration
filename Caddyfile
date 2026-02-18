@@ -35,6 +35,10 @@ ohana-matrix.xyz {
 	}
 }
 
+chat.ohana-matrix.xyz {
+	reverse_proxy element-web:80
+}
+
 ohana-matrix.xyz:8448 {
 	reverse_proxy conduwuit:6167
 }
