@@ -7,7 +7,7 @@ rtc:
   use_external_ip: true
 
 room:
-  auto_create: false
+  auto_create: true
 
 turn:
   enabled: false

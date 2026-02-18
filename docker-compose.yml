@@ -51,7 +51,7 @@ services:
   lk-jwt-service:
     image: ghcr.io/element-hq/lk-jwt-service:latest
     environment:
-      - LIVEKIT_URL=${LIVEKIT_URL}
+      - LIVEKIT_URL=wss://ohana-matrix.xyz/sfu
       - LIVEKIT_KEY=${LIVEKIT_KEY}
       - LIVEKIT_SECRET=${LIVEKIT_SECRET}
       - LK_JWT_PORT=8080
