@@ -1,5 +1,4 @@
 .env
 data/
 config/matrix_key.pem
-fly.toml
 *.log
