@@ -1,12 +1,8 @@
 package main
 
 import (
-	"crypto/hmac"
-	"crypto/sha1"
 	"embed"
-	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"io"
 	"io/fs"
 	"log"
@@ -24,25 +20,20 @@ var staticFiles embed.FS
 var usernamePattern = regexp.MustCompile(`^[a-z0-9._=\-/]+$`)
 
 func main() {
-	sharedSecret := os.Getenv("REGISTRATION_SHARED_SECRET")
-	if sharedSecret == "" {
-		log.Fatal("REGISTRATION_SHARED_SECRET is not set")
-	}
-
 	inviteCode := os.Getenv("INVITE_CODE")
 	if inviteCode == "" {
 		log.Fatal("INVITE_CODE is not set")
 	}
 
-	dendriteAddr := os.Getenv("DENDRITE_URL")
-	if dendriteAddr == "" {
-		dendriteAddr = "http://localhost:8009"
+	homeserverAddr := os.Getenv("HOMESERVER_URL")
+	if homeserverAddr == "" {
+		homeserverAddr = "http://localhost:6167"
 	}
-	dendriteURL, err := url.Parse(dendriteAddr)
+	homeserverURL, err := url.Parse(homeserverAddr)
 	if err != nil {
-		log.Fatalf("invalid DENDRITE_URL %q: %v", dendriteAddr, err)
+		log.Fatalf("invalid HOMESERVER_URL %q: %v", homeserverAddr, err)
 	}
-	proxy := httputil.NewSingleHostReverseProxy(dendriteURL)
+	proxy := httputil.NewSingleHostReverseProxy(homeserverURL)
 
 	wwwFS, err := fs.Sub(staticFiles, "www")
 	if err != nil {
@@ -62,7 +53,7 @@ func main() {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		handleRegistration(w, r, sharedSecret, inviteCode, dendriteURL.String())
+		handleRegistration(w, r, inviteCode, homeserverURL.String())
 	})
 
 	mux.Handle("/", proxy)
@@ -77,11 +68,11 @@ type registrationRequest struct {
 	InviteCode string `json:"invite_code"`
 }
 
-type nonceResponse struct {
-	Nonce string `json:"nonce"`
+type uiaResponse struct {
+	Session string `json:"session"`
 }
 
-func handleRegistration(w http.ResponseWriter, r *http.Request, sharedSecret, inviteCode, dendriteBase string) {
+func handleRegistration(w http.ResponseWriter, r *http.Request, inviteCode, homeserverBase string) {
 	var req registrationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
@@ -112,44 +103,63 @@ func handleRegistration(w http.ResponseWriter, r *http.Request, sharedSecret, in
 		return
 	}
 
-	// Step 1: Get a nonce from Dendrite
-	nonceResp, err := http.Get(dendriteBase + "/_synapse/admin/v1/register")
+	registerURL := homeserverBase + "/_matrix/client/v3/register"
+
+	// Step 1: Initiate registration to get a UIA session
+	initBody := map[string]any{
+		"username": req.Username,
+		"password": req.Password,
+	}
+	initJSON, _ := json.Marshal(initBody)
+	initResp, err := http.Post(registerURL, "application/json", strings.NewReader(string(initJSON)))
 	if err != nil {
-		log.Printf("failed to get nonce: %v", err)
+		log.Printf("failed to initiate registration: %v", err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "failed to contact homeserver"})
 		return
 	}
-	defer nonceResp.Body.Close()
+	defer initResp.Body.Close()
+	initRespBody, _ := io.ReadAll(initResp.Body)
 
-	var nonce nonceResponse
-	if err := json.NewDecoder(nonceResp.Body).Decode(&nonce); err != nil {
-		log.Printf("failed to decode nonce response: %v", err)
+	// Registration succeeded without UIA (open registration)
+	if initResp.StatusCode == http.StatusOK {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "account created successfully"})
+		return
+	}
+
+	if initResp.StatusCode != http.StatusUnauthorized {
+		var errResp map[string]any
+		if json.Unmarshal(initRespBody, &errResp) == nil {
+			if errMsg, ok := errResp["error"].(string); ok {
+				writeJSON(w, initResp.StatusCode, map[string]string{"error": errMsg})
+				return
+			}
+		}
+		writeJSON(w, initResp.StatusCode, map[string]string{"error": "registration failed"})
+		return
+	}
+
+	// Parse session ID from UIA 401 response
+	var uia uiaResponse
+	if err := json.Unmarshal(initRespBody, &uia); err != nil || uia.Session == "" {
+		log.Printf("failed to parse UIA response: %v", err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "unexpected response from homeserver"})
 		return
 	}
 
-	// Step 2: Compute HMAC-SHA1 of nonce\0username\0password\0notadmin
-	mac := hmac.New(sha1.New, []byte(sharedSecret))
-	mac.Write([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00notadmin", nonce.Nonce, req.Username, req.Password)))
-	hmacHex := hex.EncodeToString(mac.Sum(nil))
-
-	// Step 3: Register with Dendrite using the HMAC
-	regBody := map[string]interface{}{
-		"nonce":    nonce.Nonce,
+	// Step 2: Complete registration with the token
+	regBody := map[string]any{
 		"username": req.Username,
 		"password": req.Password,
-		"mac":      hmacHex,
-		"admin":    false,
+		"auth": map[string]any{
+			"type":    "m.login.registration_token",
+			"token":   inviteCode,
+			"session": uia.Session,
+		},
 	}
-
 	regJSON, _ := json.Marshal(regBody)
-	regResp, err := http.Post(
-		dendriteBase+"/_synapse/admin/v1/register",
-		"application/json",
-		strings.NewReader(string(regJSON)),
-	)
+	regResp, err := http.Post(registerURL, "application/json", strings.NewReader(string(regJSON)))
 	if err != nil {
-		log.Printf("failed to register user: %v", err)
+		log.Printf("failed to complete registration: %v", err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "failed to contact homeserver"})
 		return
 	}
@@ -158,7 +168,7 @@ func handleRegistration(w http.ResponseWriter, r *http.Request, sharedSecret, in
 	body, _ := io.ReadAll(regResp.Body)
 
 	if regResp.StatusCode != http.StatusOK {
-		var errResp map[string]interface{}
+		var errResp map[string]any
 		if json.Unmarshal(body, &errResp) == nil {
 			if errMsg, ok := errResp["error"].(string); ok {
 				writeJSON(w, regResp.StatusCode, map[string]string{"error": errMsg})
@@ -172,7 +182,7 @@ func handleRegistration(w http.ResponseWriter, r *http.Request, sharedSecret, in
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "account created successfully"})
 }
 
-func writeJSON(w http.ResponseWriter, status int, data interface{}) {
+func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)

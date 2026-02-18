@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Self-hosted Matrix homeserver (Dendrite) on a Hetzner VPS for `ohana-matrix.xyz`, with Element Call (LiveKit) for voice/video. A Go reverse proxy sits in front of Dendrite to add invite-code-gated user registration. Everything runs via `docker-compose.yml`.
+Self-hosted Matrix homeserver (Conduwuit) on a Hetzner VPS for `ohana-matrix.xyz`, with Element Call (LiveKit) for voice/video. A Go reverse proxy sits in front of Conduwuit to add invite-code-gated user registration. Everything runs via `docker-compose.yml`.
 
 ## Architecture
 
@@ -20,9 +20,9 @@ Internet
     +-- /*                          -> registration-proxy:8008
                                          +-- /register/*    -> embedded static UI
                                          +-- /api/register  -> invite-gated handler
-                                         +-- /*             -> dendrite:8008
+                                         +-- /*             -> conduwuit:6167
     |
-    +-- :8448 /*                    -> dendrite:8008 (federation, TLS by Caddy)
+    +-- :8448 /*                    -> conduwuit:6167 (federation, TLS by Caddy)
 
   LiveKit direct host ports:
     7881/tcp  (ICE TCP fallback)
@@ -30,8 +30,8 @@ Internet
 ```
 
 - **Caddy** terminates TLS for everything including federation on :8448.
-- **Dendrite** listens on HTTP :8008 only (no HTTPS listener).
-- **Registration proxy** (`registration/main.go`): Go binary using only stdlib. Serves the registration UI, validates invite codes, computes HMAC-SHA1 against Dendrite's admin registration API, and reverse-proxies all other traffic to Dendrite.
+- **Conduwuit** is a Rust-based Matrix homeserver using RocksDB for local storage. No external database needed.
+- **Registration proxy** (`registration/main.go`): Go binary using only stdlib. Serves the registration UI, validates invite codes via Matrix UIA (m.login.registration_token), and reverse-proxies all other traffic to Conduwuit.
 - **LiveKit** handles WebRTC media for Element Call voice/video.
 - **lk-jwt-service** issues JWT tokens for LiveKit access, scoped to `ohana-matrix.xyz`.
 - Static registration UI files (`registration/www/`) are embedded into the Go binary via `//go:embed`.
@@ -61,7 +61,7 @@ The Dockerfile is a two-stage build: compiles the Go proxy in `golang:1.25-alpin
 
 ### Deploy
 
-On the VPS, pull latest and restart:
+Push to `master` triggers automatic deployment via GitHub Actions (SSH to VPS). Manual deploy:
 
 ```bash
 git pull && docker compose up -d --build
@@ -69,30 +69,22 @@ git pull && docker compose up -d --build
 
 ### Create accounts
 
-```bash
-docker compose exec dendrite /usr/bin/create-account -config /tmp/dendrite.yaml -username alice
-docker compose exec dendrite /usr/bin/create-account -config /tmp/dendrite.yaml -username admin -admin
-```
+Users register through the invite-gated UI at `/register/`. The invite code doubles as the Conduwuit registration token.
 
 ## Runtime Secrets
 
-Managed via `.env` file (not committed). The dendrite entrypoint (`scripts/dendrite-entrypoint.sh`) injects `DATABASE_URI` and `REGISTRATION_SHARED_SECRET` into `config/dendrite.yaml` at container startup using `sed`.
+Managed via `.env` file (not committed).
 
-- `DATABASE_URI` - PostgreSQL connection string (Railway)
-- `REGISTRATION_SHARED_SECRET` - Dendrite admin registration secret
-- `INVITE_CODE` - required invite code for the registration form
-- `DENDRITE_URL` - URL the proxy uses to reach Dendrite (default: `http://dendrite:8008`)
+- `INVITE_CODE` - required invite code for registration (also used as Conduwuit's registration token)
 - `LIVEKIT_KEY` - LiveKit API key
 - `LIVEKIT_SECRET` - LiveKit API secret
 
 ## Key Files
 
 - `registration/main.go` - the entire proxy server (single file, stdlib only)
-- `config/dendrite.yaml` - Dendrite config template (placeholders replaced at runtime)
-- `docker-compose.yml` - full stack: Caddy, Dendrite, registration proxy, LiveKit, lk-jwt-service
+- `docker-compose.yml` - full stack: Caddy, Conduwuit, registration proxy, LiveKit, lk-jwt-service
 - `Caddyfile` - reverse proxy routing and TLS termination
 - `livekit/livekit.yaml` - LiveKit server configuration
-- `scripts/dendrite-entrypoint.sh` - container entrypoint; injects secrets, generates signing key, starts Dendrite
 - `.env.example` - template for required environment variables
 
 ## Conventions
@@ -100,8 +92,4 @@ Managed via `.env` file (not committed). The dendrite entrypoint (`scripts/dendr
 - The Go module (`registration/`) uses zero external dependencies -- stdlib only.
 - No test suite exists yet.
 - No linter or formatter is configured. Standard `gofmt` applies.
-- The signing key (`matrix_key.pem`) is generated on first boot onto the persistent volume (`/data`), not baked into the image.
-
-## Dendrite + Element Call Caveat
-
-Dendrite is missing MSC4140/MSC4222 support, so call state may get stale if a client crashes mid-call. Core calling (audio, video, screen share) works fine once both parties join.
+- Conduwuit stores all data in a RocksDB database on a Docker volume (`conduwuit_data`).
