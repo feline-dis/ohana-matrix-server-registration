@@ -21,11 +21,10 @@ services:
     image: ghcr.io/matrix-construct/tuwunel:latest
     volumes:
       - ./config/conduwuit.toml:/etc/conduwuit/conduwuit.toml:ro
-      - ./scripts/conduwuit-entrypoint.sh:/usr/local/bin/conduwuit-entrypoint.sh:ro
       - conduwuit_data:/var/lib/conduwuit
     environment:
-      - INVITE_CODE=${INVITE_CODE}
-    entrypoint: ["/usr/local/bin/conduwuit-entrypoint.sh"]
+      CONDUWUIT_REGISTRATION_TOKEN: ${INVITE_CODE}
+    command: ["--config", "/etc/conduwuit/conduwuit.toml"]
     restart: unless-stopped
 
   registration-proxy:
