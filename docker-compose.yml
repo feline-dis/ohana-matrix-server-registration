@@ -29,7 +29,7 @@ services:
     restart: unless-stopped
 
   registration-proxy:
-    build: .
+    image: ghcr.io/feline-dis/feline-matrix:latest
     environment:
       - INVITE_CODE=${INVITE_CODE}
       - HOMESERVER_URL=http://conduwuit:6167
