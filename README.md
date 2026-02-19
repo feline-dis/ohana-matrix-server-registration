@@ -36,6 +36,8 @@ Internet
 
 **lk-jwt-service** -- Issues JWT tokens so Matrix clients can authenticate with LiveKit.
 
+**[Matrix Claude Bot](https://github.com/feline-dis/matrix-claude-bot)** -- A Go bot (`@claude:ohana-matrix.xyz`) that responds to @-mentions using the Anthropic Claude API, maintaining per-thread conversation history. Runs as a systemd service outside Docker.
+
 ## Self-hosting
 
 ### Prerequisites
@@ -88,6 +90,45 @@ Internet
    - [Element Mobile](https://element.io/download) (iOS / Android)
 4. **Sign in** with your Matrix ID (`@username:<domain>`) and set the homeserver URL to `https://<domain>`.
 5. **Voice/video calls** work out of the box via Element Call (built into Element clients).
+
+## Claude bot setup
+
+The Matrix Claude Bot runs as a standalone binary managed by systemd (not part of the Docker Compose stack). The deploy workflow automatically updates it to the latest release.
+
+**Manual setup** (already done on the VPS):
+
+1. Download the latest release:
+
+   ```sh
+   curl -fsSL -o /opt/matrix-claude-bot/matrix-claude-bot \
+     https://github.com/feline-dis/matrix-claude-bot/releases/latest/download/matrix-claude-bot-linux-amd64
+   chmod +x /opt/matrix-claude-bot/matrix-claude-bot
+   ```
+
+2. Create `/opt/matrix-claude-bot/config.yaml`:
+
+   ```yaml
+   matrix:
+     homeserver_url: "https://ohana-matrix.xyz"
+     user_id: "@claude:ohana-matrix.xyz"
+     access_token: "<token>"
+
+   anthropic:
+     api_key: "<key>"
+
+   claude:
+     model: "claude-sonnet-4-20250514"
+     max_tokens: 4096
+     system_prompt: "You are a helpful assistant."
+   ```
+
+3. Enable the systemd service:
+
+   ```sh
+   systemctl enable --now matrix-claude-bot
+   ```
+
+4. Invite `@claude:ohana-matrix.xyz` to a room and mention it to interact.
 
 ## Project structure
 

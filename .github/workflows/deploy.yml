@@ -43,3 +43,10 @@ jobs:
             git pull origin master
             docker compose pull
             docker compose up -d --remove-orphans
+
+            # Update matrix-claude-bot to latest release
+            BOT_URL=$(curl -fsSL https://api.github.com/repos/feline-dis/matrix-claude-bot/releases/latest \
+              | grep -o 'https://github.com/feline-dis/matrix-claude-bot/releases/download/[^"]*linux-amd64')
+            curl -fsSL -o /opt/matrix-claude-bot/matrix-claude-bot "$BOT_URL"
+            chmod +x /opt/matrix-claude-bot/matrix-claude-bot
+            systemctl restart matrix-claude-bot

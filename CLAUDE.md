@@ -34,6 +34,7 @@ Internet
 - **Registration proxy** (`registration/main.go`): Go binary using only stdlib. Serves the registration UI, validates invite codes via Matrix UIA (m.login.registration_token), and reverse-proxies all other traffic to Conduwuit.
 - **LiveKit** handles WebRTC media for Element Call voice/video.
 - **lk-jwt-service** issues JWT tokens for LiveKit access, scoped to `ohana-matrix.xyz`.
+- **Matrix Claude Bot** (`@claude:ohana-matrix.xyz`): standalone Go binary from [feline-dis/matrix-claude-bot](https://github.com/feline-dis/matrix-claude-bot). Responds to @-mentions via the Anthropic Claude API. Runs as a systemd service (`matrix-claude-bot.service`) outside the Docker stack. Binary at `/opt/matrix-claude-bot/matrix-claude-bot`, config at `/opt/matrix-claude-bot/config.yaml`.
 - Static registration UI files (`registration/www/`) are embedded into the Go binary via `//go:embed`.
 
 ## Build and Development
@@ -61,10 +62,10 @@ The Dockerfile is a two-stage build: compiles the Go proxy in `golang:1.25-alpin
 
 ### Deploy
 
-Push to `master` triggers automatic deployment via GitHub Actions (SSH to VPS). Manual deploy:
+Push to `master` triggers GitHub Actions: builds the registration proxy image on GHCR, then SSHs into the VPS to pull the image, restart containers, and update the Claude bot binary from its latest GitHub release. Manual deploy:
 
 ```bash
-git pull && docker compose up -d --build
+cd ~/feline-matrix && git pull origin master && docker compose pull && docker compose up -d --remove-orphans
 ```
 
 ### Create accounts
