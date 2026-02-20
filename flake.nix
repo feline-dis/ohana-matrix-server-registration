@@ -1,5 +1,5 @@
 {
-  description = "Matrix registration proxy for ohana-matrix.xyz";
+  description = "Invite-code-gated registration proxy for Matrix homeservers";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
